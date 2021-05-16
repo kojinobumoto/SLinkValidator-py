@@ -1,4 +1,4 @@
-# SLinkValidator-py (python version of Simple Link Validato)
+# SLinkValidator-py (python version of Simple Link Validator)
 
 * run program on jupyter notebook
 * specity location of chromedriver in modules/settings (plus, change other setting options if you need)
