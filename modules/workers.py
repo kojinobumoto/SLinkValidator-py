@@ -68,7 +68,6 @@ def init_link_check_worker(__str_start_datetime
     numCriticalExceptions   = __numCriticalExceptions
 
     link_check_worker.RESULT_DIRNAME = 'results-' + str_start_datetime
-    #Path(link_check_worker.RESULT_DIRNAME).mkdir(exist_ok=True, parents=True)
 
     link_check_worker.FILE_BROWSED_PAGES             = '02.browsed_pages-' + str_start_datetime + '.csv'
     link_check_worker.FILE_OK_LINKS                  = '03.healthy-links-' + str_start_datetime + '.csv'
@@ -85,10 +84,6 @@ def init_link_check_worker(__str_start_datetime
     #Path(link_check_worker.RESULT_DIRNAME, link_check_worker.FILE_CONSOLELOG_ALL).touch(exist_ok=True) #already created by parent process
     Path(link_check_worker.RESULT_DIRNAME, link_check_worker.FILE_CRITICALEXCEPTIONS_ALL).touch(exist_ok=True)
 
-
-# exception が発生した function の名前と内容
-def print_exception_content(function_name, ex):
-    print('例外が発生しました ({0}) {1}, {2}'.format(function_name, ex.__class__.__name__, ex))
 
 def writeOutMsgToFile(strPathToFile, strMsg, lock):
     try:
@@ -411,8 +406,8 @@ def link_check_worker(q
 
                         strAbsoluteURL = makeAbsoluteURL(strCurrentBrowsingURL, strAttrHref)
 
-                        # チェック済か外部リンクならそのようにメッセージを出す.
-                        # 未チェックのURLなら、チェックしたステータスを元にメッセージを作り、チェック済 queue にURLを格納。
+                        # if strAbsoluteURL is already checked or is external link, print message.
+                        # if it is not checked yet, create message based on the response status and store it into q_checked_links.
                         if strAbsoluteURL in q_checked_links:
                             # already checkecd the status
                             checked_status_code= q_checked_links[strAbsoluteURL]
@@ -421,8 +416,8 @@ def link_check_worker(q
                                                                     , handleDoubleQuoteForCSV(unquote(strAttrHref)) \
                                                                     , '(visited)'
                                                                     , checked_status_code)
-                            # -> wrong! the link already visited does not means it's status is "OK".
-                            #writeOutMessageToTmpFile(os.path.join(link_check_worker.RESULT_DIRNAME, f_out_ok), strMsg)
+                            
+                            #writeOutMessageToTmpFile(os.path.join(link_check_worker.RESULT_DIRNAME, f_out_ok), strMsg) # -> wrong! the link already checkeded does not means it's status is "OK".
 
                             # increment counter based on the response status.
                             if checked_status_code >= 400:
