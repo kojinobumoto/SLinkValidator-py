@@ -5,3 +5,6 @@
 * specify following in notebook
   * num of cpu to use
   * url of begiining or url-list
+
+## License
+[MIT](https://choosealicense.com/licenses/mit/)
