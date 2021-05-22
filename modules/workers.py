@@ -33,11 +33,13 @@ numConsoleWarn    = None
 def init_link_check_worker(__str_start_datetime
                            , __flagRunningMode
                            , __strBaseURL
+                           , __strBasicAuthID
+                           , __strBasicAuthPassword
+                           , __numBrowsedPages
+                           , __numHealthyLink                            
                            , __numInvalidLink 
                            , __numExceptions 
-                           , __numHealthyLink 
                            , __numExternalLinks 
-                           , __numBrowsedPages
                            , __numConsoleSevere
                            , __numConsoleWarn
                            , __numCriticalExceptions):
@@ -46,11 +48,13 @@ def init_link_check_worker(__str_start_datetime
     global str_start_datetime \
         , flagRunningMode \
         , strBaseURL \
+        , strBasicAuthID \
+        , strBasicAuthPassword \
+        , numBrowsedPages \
+        , numHealthyLink \
         , numInvalidLink \
         , numExceptions \
-        , numHealthyLink \
         , numExternalLinks \
-        , numBrowsedPages \
         , numConsoleSevere \
         , numConsoleWarn \
         , numCriticalExceptions
@@ -58,11 +62,13 @@ def init_link_check_worker(__str_start_datetime
     str_start_datetime      = __str_start_datetime
     flagRunningMode         = __flagRunningMode
     strBaseURL              = __strBaseURL
+    strBasicAuthID          = __strBasicAuthID
+    strBasicAuthPassword    = __strBasicAuthPassword
+    numBrowsedPages         = __numBrowsedPages
+    numHealthyLink          = __numHealthyLink
     numInvalidLink          = __numInvalidLink
     numExceptions           = __numExceptions
-    numHealthyLink          = __numHealthyLink
     numExternalLinks        = __numExternalLinks
-    numBrowsedPages         = __numBrowsedPages
     numConsoleSevere        = __numConsoleSevere
     numConsoleWarn          = __numConsoleWarn
     numCriticalExceptions   = __numCriticalExceptions
@@ -256,22 +262,34 @@ def countup_shared_variable(mp_counter):
     except Exception as ex:
         raise
 
-def isSeemsLikeNoURLAnymore(q):
+# if q is empty, wait at most 90 sec.
+def carefullyPopTargetURL(q, lock):
     # if no data in q, wait at mmost numMaxSec.
     numPassedSec = 0
     numInterval  = 2
-    numMaxSec    = 60
-    while not q and numPassedSec <= numMaxSec:
-        time.sleep(numInterval)
-        numPassedSec += numInterval
+    numMaxSec    = 90
+    url = ''
+    try:
+        while not q and numPassedSec <= numMaxSec:
+            time.sleep(numInterval)
+            numPassedSec += numInterval
 
-    if q:
-        # url exists in q
-        return False
-    else:
-        # waited 60 sec, but still no url in q -> seems to have no url anymore.
-        return True
+        if q:
+            # url exists in q
 
+            try:
+                while not lock.acquire(True, 2.0):
+                    time.sleep(1.0)
+                url = q.pop(0)
+            finally:
+                lock.release()
+            return url
+        else:
+            # waited 60 sec, but still no url in q -> seems to have no url anymore.
+            return None
+    except Exception as ex:
+        raise
+    
 def getNetLoc(s):
     try:
         parsed_uri = urlparse(s)
@@ -279,6 +297,14 @@ def getNetLoc(s):
         return res
     except Exception as ex:
         raise
+
+def getBasicAuthURL(url, basic_auth_id, basic_auth_pass):
+    try:
+        parsed_url = urlparse(url)
+        res = '{uri.scheme}://{uri.netloc}/'.format(uri=parsed_uri)
+    except Exception as ex:
+        raise
+        
     
 def link_check_worker(q 
                       , q_browsed_urls 
@@ -296,15 +322,13 @@ def link_check_worker(q
         
         while True:
 
-            # if no data in q, wait at most 60 sec.
-            # if still no url in q after 60 sec passed, then break.
-            if not q and isSeemsLikeNoURLAnymore(q):
-                break
-
-            strCurrentBrowsingURL = ''
-            elems = []
-            f_out_ok = "f_out_ok.csv"
-            f_out_error= "f_out_error.csv"
+            elems       = []
+            f_out_ok    = "f_out_ok_dummy.csv"
+            f_out_error = "f_out_error_dummy.csv"
+            strCurrentBrowsingURL = None
+            
+            # try to get the target URL from q. wait max 90 sec if q is empty.            
+            strCurrentBrowsingURL = carefullyPopTargetURL(q, lock)
 
             try:
                 while not lock.acquire(True, 2.0):
@@ -313,8 +337,16 @@ def link_check_worker(q
                                
                 # must be an atomic operation.
                 # popping brosing url and storing it into q_browsed_url are this processe's responsibility.
-                q_browsed_urls.append(q.pop(0))
-                strCurrentBrowsingURL = q_browsed_urls[-1]
+                
+                if not q and strCurrentBrowsingURL is None:
+                    # if still no url in q after 90 sec passed, then break.
+                    break
+                elif q and strCurrentBrowsingURL is None:
+                    # colud not get the target url within 90 sec,
+                    # but somehow a url is stored in q in very short period while processing from "carefullyPopTargetURL()" to here.
+                    strCurrentBrowsingURL = q.pop(0)
+
+                q_browsed_urls.append(strCurrentBrowsingURL)
 
                 strProcessTimestamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')
 
@@ -340,18 +372,25 @@ def link_check_worker(q
                 elif flagRunningMode == statics.RUNNING_MODE_URLLIST:
                     strInternalUrlChkBase = getNetLoc(strCurrentBrowsingURL)
 
+                '''
+                # [TODO :eneed to implement] How can I pass through the basic authentication on Chrome? 
+                if strBasicAuthID and strBasicAuthPassword:
+                    driver.get(getBasicAuthURL(strCurrentBrowsingURL, strBasicAuthID, strBasicAuthPassword))
+                else:
+                    driver.get(strCurrentBrowsingURL)
+                '''
                 driver.get(strCurrentBrowsingURL)
                 countup_shared_variable(numBrowsedPages)
 
                 
-                resp_current_browsing_page = getResponse(strCurrentBrowsingURL, request_type='GET', boolVerifySsl=True)
+                resp_current_browsing_page = getResponse(strCurrentBrowsingURL, request_type='GET', basic_auth_id=strBasicAuthID, basic_auth_pass=strBasicAuthPassword, boolVerifySsl=True)
                 
                 if isRedirect(resp_current_browsing_page.status_code):
                     strLocation          = resp_current_browsing_page.headers['Location']
                     strFirstResponse     = resp_current_browsing_page.reason
                     strFIrstStatusCode   = resp_current_browsing_page. status_code
                     strAbsoluteLocation  =  makeAbsoluteURL(strCurrentBrowsingURL, strLocation)
-                    resp_redirect        = getResponse(strAbsoluteLocation, boolVerifySsl = True)
+                    resp_redirect        = getResponse(strAbsoluteLocation, basic_auth_id=strBasicAuthID, basic_auth_pass=strBasicAuthPassword, boolVerifySsl = True)
                     
                     strMsg = '"{}",{},"{}",{},{},"{}","{}"'.format(handleDoubleQuoteForCSV(unquote(strCurrentBrowsingURL)) \
                                                                    , '' \
@@ -392,7 +431,7 @@ def link_check_worker(q
                         try:
                             strLinkType = '<{}>'.format(elem.tag_name)
                         except StaleElementReferenceException:
-                            time.sleep(2)
+                            time.sleep(3.0)
                             strLinkType = '<{}>'.format(elem.tag_name)
                         except Exception:
                             raise
@@ -437,7 +476,7 @@ def link_check_worker(q
 
                             writeOutMessageToTmpFile(os.path.join(link_check_worker.RESULT_DIRNAME, f_out_externalLinks), strMsg)
                         else:
-                            resp_elem = getResponse(strAbsoluteURL, boolVerifySsl=True)
+                            resp_elem = getResponse(strAbsoluteURL, basic_auth_id=strBasicAuthID, basic_auth_pass=strBasicAuthPassword, boolVerifySsl=True)
                             strMsg = '"{}",{},"{}",{},{},"{}","{}"'.format(handleDoubleQuoteForCSV(unquote(strCurrentBrowsingURL)) \
                                                                            , strLinkType \
                                                                            , handleDoubleQuoteForCSV(unquote(strAttrHref)) \
@@ -563,7 +602,7 @@ def link_check_worker(q
             '{},' \
             '{}"'.format( sys._getframe().f_code.co_name\
                           , ex.__class__.__name__ \
-                          , repr(traceback.format_stack()) \
+                          , str(traceback.format_tb(ex.__traceback__)) \
                           , '' \
                           , '' \
                           , '' \
