@@ -392,7 +392,7 @@ def link_check_worker(q
                     strAbsoluteLocation  =  makeAbsoluteURL(strCurrentBrowsingURL, strLocation)
                     resp_redirect        = getResponse(strAbsoluteLocation, basic_auth_id=strBasicAuthID, basic_auth_pass=strBasicAuthPassword, boolVerifySsl = True)
                     
-                    strMsg = '"{}",{},"{}",{},{},"{}","{}"'.format(handleDoubleQuoteForCSV(unquote(strCurrentBrowsingURL)) \
+                    strMsg = '"{}","{}","{}",{},{},"{}","{}"'.format(handleDoubleQuoteForCSV(unquote(strCurrentBrowsingURL)) \
                                                                    , '' \
                                                                    , resp_current_browsing_page.status_code\
                                                                    , resp_current_browsing_page.reason \
