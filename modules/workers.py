@@ -198,33 +198,26 @@ def isRedirect(http_code):
 # do HEAD / GET request (HEAD if request_type was None)
 def doRequest(target_url, request_type=None, argAuth=None, argVerify=None):
     resp = None
+    req_method  = None
     try:
         if request_type == 'GET':
-            if argAuth is not None and argVerify is not None:
-            # basic auth and https
-                resp = requests.get(target_url, allow_redirects=False, auth=argAuth, verify=argVerify)
-            elif argVerify is not None:
-                # https without basic auth
-                resp = requests.get(target_url, allow_redirects=False,verify=argVerify)
-            elif argAuth is not None:
-                # basic auth
-                resp = requests.get(target_url, allow_redirects=False,auth=argAuth)
-            else:
-                # http without basic auth
-                resp = requests.get(target_url, allow_redirects=False,)
+            req_method = requests.get
         else:
-            if argAuth is not None and argVerify is not None:
-                # basic auth and https
-                resp = requests.head(target_url, allow_redirects=False, auth=argAuth, verify=argVerify)
-            elif argVerify is not None:
-                # https without basic auth
-                resp = requests.head(target_url, allow_redirects=False,verify=argVerify)
-            elif argAuth is not None:
-                # basic auth
-                resp = requests.head(target_url, allow_redirects=False,auth=argAuth)
-            else:
-                # http without basic auth
-                resp = requests.head(target_url, allow_redirects=False,)
+            req_method = requests.head
+
+        if argAuth is not None and argVerify is not None:
+        # basic auth and https
+            resp = req_method(target_url, allow_redirects=False, auth=argAuth, verify=argVerify)
+        elif argVerify is not None:
+            # https without basic auth
+            resp = req_method(target_url, allow_redirects=False,verify=argVerify)
+        elif argAuth is not None:
+            # basic auth
+            resp = req_method(target_url, allow_redirects=False,auth=argAuth)
+        else:
+            # http without basic auth
+            resp = req_method(target_url, allow_redirects=False,)
+
         return resp
     except Exception as ex:
         raise
