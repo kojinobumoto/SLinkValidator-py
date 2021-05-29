@@ -418,16 +418,24 @@ def link_check_worker(q
                     strLinkText = ''
                     strAltText = ''
                     strMsg = ''
+                    intAttempts = 0
 
                     try:
 
-                        try:
-                            strLinkType = '<{}>'.format(elem.tag_name)
-                        except StaleElementReferenceException:
-                            time.sleep(3.0)
-                            strLinkType = '<{}>'.format(elem.tag_name)
-                        except Exception:
-                            raise
+                        while intAttempts < settings.INT_MAX_ATTEMMPTS_FOR_STALEELEMENT:
+                            try:
+                                strLinkType = '<{}>'.format(elem.tag_name)
+                                break
+                            except StaleElementReferenceException:
+                                time.sleep(3.0)
+                                intAttempts += 1
+                                if intAttempts < settings.INT_MAX_ATTEMMPTS_FOR_STALEELEMENT:
+                                    continue
+                                else:
+                                    raise
+                            except Exception:
+                                raise
+                        
 
                         if elem.tag_name in ('a', 'link'):
                             strAttrHref = elem.get_attribute('href')
@@ -509,6 +517,25 @@ def link_check_worker(q
                             else:
                                 countup_shared_variable(numHealthyLink)
                                 writeOutMessageToTmpFile(os.path.join(link_check_worker.RESULT_DIRNAME, f_out_ok), strMsg)
+                    except StaleElementReferenceException as ex:
+                        exc_type, exc_value, exc_traceback = sys.exc_info()
+                        sam =  traceback.format_exception(exc_type, exc_value, exc_traceback)
+
+                        strMsg = '"{}",' \
+                                'Element: "{}",' \
+                                '"{}",' \
+                                '[Exception] @class : {},' \
+                                '@in : {},' \
+                                'Message : {},' \
+                                '"{}"'.format(handleDoubleQuoteForCSV(unquote(strCurrentBrowsingURL)) \
+                                              , str(elem) \
+                                              , '' \
+                                              , ex.__class__.__name__ \
+                                              , sys._getframe().f_code.co_name \
+                                              , repr(traceback.format_stack()) \
+                                              , '')
+                        countup_shared_variable(numExceptions)
+                        writeOutMessageToTmpFile(os.path.join(link_check_worker.RESULT_DIRNAME, f_out_exceptions), strMsg)                                
                     except Exception as ex:
                         exc_type, exc_value, exc_traceback = sys.exc_info()
                         sam =  traceback.format_exception(exc_type, exc_value, exc_traceback)
