@@ -10,6 +10,7 @@ import requests
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
+from selenium.webdriver.chrome.options import Options
 from urllib.parse import urlparse
 from urllib.parse import unquote
 from pathlib import Path
@@ -42,7 +43,8 @@ def init_link_check_worker(__str_start_datetime
                            , __numExternalLinks 
                            , __numConsoleSevere
                            , __numConsoleWarn
-                           , __numCriticalExceptions):
+                           , __numCriticalExceptions
+                           , __boolVerifySSLCertIN):
 
         
     global str_start_datetime \
@@ -57,7 +59,8 @@ def init_link_check_worker(__str_start_datetime
         , numExternalLinks \
         , numConsoleSevere \
         , numConsoleWarn \
-        , numCriticalExceptions
+        , numCriticalExceptions \
+        , boolVerifySSLCertIN
     
     str_start_datetime      = __str_start_datetime
     flagRunningMode         = __flagRunningMode
@@ -72,6 +75,7 @@ def init_link_check_worker(__str_start_datetime
     numConsoleSevere        = __numConsoleSevere
     numConsoleWarn          = __numConsoleWarn
     numCriticalExceptions   = __numCriticalExceptions
+    boolVerifySSLCertIN       = __boolVerifySSLCertIN
 
     link_check_worker.RESULT_DIRNAME = 'results-' + str_start_datetime
 
@@ -223,7 +227,12 @@ def doRequest(target_url, request_type=None, argAuth=None, argVerify=None):
         raise
 
 # check http responce with HEAD / GET request
-def getResponse(target_url, request_type=None, basic_auth_id=None, basic_auth_pass=None, boolVerifySsl=None):
+def getResponse(
+        target_url
+        , request_type=None
+        , basic_auth_id=None
+        , basic_auth_pass=None
+        , boolVerifySsl=None):
     
     resp = None
     argAuth = None
@@ -309,8 +318,13 @@ def link_check_worker(q
         d = DesiredCapabilities.CHROME
         #d['loggingPrefs'] = { 'browser':'ALL' }
         d['goog:loggingPrefs'] = { 'browser':'ALL' }
+        d['acceptInsecureCerts'] = True
+
+        options = Options()
+        options.add_argument('--ignore-certificate-errors')
+
         
-        driver = webdriver.Chrome(settings.PATH_TO_CHROME_DRIVER, desired_capabilities=d)
+        driver = webdriver.Chrome(settings.PATH_TO_CHROME_DRIVER, desired_capabilities=d, options=options)
         driver.implicitly_wait(settings.NUM_IMPLICITLY_WAIT_SEC)
         
         while True:
@@ -374,16 +388,23 @@ def link_check_worker(q
                 '''
                 driver.get(strCurrentBrowsingURL)
                 countup_shared_variable(numBrowsedPages)
+                time.sleep(settings.INT_WAIT_SEC_AFTER_DRIVER_GET) # just wait a little bit to avoid StaleElementReferenceException.
 
-                
-                resp_current_browsing_page = getResponse(strCurrentBrowsingURL, request_type='GET', basic_auth_id=strBasicAuthID, basic_auth_pass=strBasicAuthPassword, boolVerifySsl=True)
+                resp_current_browsing_page = getResponse(strCurrentBrowsingURL
+                                                         , request_type='GET'
+                                                         , basic_auth_id=strBasicAuthID
+                                                         , basic_auth_pass=strBasicAuthPassword
+                                                         , boolVerifySsl=boolVerifySSLCertIN)
                 
                 if isRedirect(resp_current_browsing_page.status_code):
                     strLocation          = resp_current_browsing_page.headers['Location']
                     strFirstResponse     = resp_current_browsing_page.reason
                     strFIrstStatusCode   = resp_current_browsing_page. status_code
                     strAbsoluteLocation  =  makeAbsoluteURL(strCurrentBrowsingURL, strLocation)
-                    resp_redirect        = getResponse(strAbsoluteLocation, basic_auth_id=strBasicAuthID, basic_auth_pass=strBasicAuthPassword, boolVerifySsl = True)
+                    resp_redirect        = getResponse(strAbsoluteLocation
+                                                       , basic_auth_id=strBasicAuthID
+                                                       , basic_auth_pass=strBasicAuthPassword
+                                                       , boolVerifySsl = boolVerifySSLCertIN)
                     
                     strMsg = '"{}","{}","{}",{},{},"{}","{}"'.format(handleDoubleQuoteForCSV(unquote(strCurrentBrowsingURL)) \
                                                                    , '' \
@@ -451,7 +472,7 @@ def link_check_worker(q
                         if strAbsoluteURL in q_checked_links:
                             # already checkecd the status
                             checked_status_code= q_checked_links[strAbsoluteURL]
-                            strMsg = '"{}",{},"{}", {},{},,'.format(handleDoubleQuoteForCSV(unquote(strCurrentBrowsingURL)) \
+                            strMsg = '"{0}",{1},"{2}",{3},{4},,'.format(handleDoubleQuoteForCSV(unquote(strCurrentBrowsingURL)) \
                                                                     , strLinkType \
                                                                     , handleDoubleQuoteForCSV(unquote(strAttrHref)) \
                                                                     , '(visited)'
@@ -477,8 +498,11 @@ def link_check_worker(q
 
                             writeOutMessageToTmpFile(os.path.join(link_check_worker.RESULT_DIRNAME, f_out_externalLinks), strMsg)
                         else:
-                            resp_elem = getResponse(strAbsoluteURL, basic_auth_id=strBasicAuthID, basic_auth_pass=strBasicAuthPassword, boolVerifySsl=True)
-                            strMsg = '"{}",{},"{}",{},{},"{}","{}"'.format(handleDoubleQuoteForCSV(unquote(strCurrentBrowsingURL)) \
+                            resp_elem = getResponse(strAbsoluteURL
+                                                    , basic_auth_id=strBasicAuthID
+                                                    , basic_auth_pass=strBasicAuthPassword
+                                                    , boolVerifySsl=boolVerifySSLCertIN)
+                            strMsg = '"{0}",{1},"{2}",{3},{4},"{5}","{6}"'.format(handleDoubleQuoteForCSV(unquote(strCurrentBrowsingURL)) \
                                                                            , strLinkType \
                                                                            , handleDoubleQuoteForCSV(unquote(strAttrHref)) \
                                                                            , resp_elem.reason \
