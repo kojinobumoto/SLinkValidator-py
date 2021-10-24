@@ -242,7 +242,7 @@ def doRequest(
             resp = req_method(target_url, allow_redirects=argFollowRedirect, auth=argAuth)
         else:
             # http without basic auth
-            resp = req_method(target_url, allow_redirects=argFollowRedirecte,)
+            resp = req_method(target_url, allow_redirects=argFollowRedirect,)
 
         
         return resp
