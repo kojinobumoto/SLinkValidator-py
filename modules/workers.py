@@ -6,6 +6,8 @@ import queue
 import datetime, time
 import traceback
 import requests
+import base64
+import csv
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -44,7 +46,8 @@ def init_link_check_worker(__str_start_datetime
                            , __numConsoleSevere
                            , __numConsoleWarn
                            , __numCriticalExceptions
-                           , __boolVerifySSLCertIN):
+                           , __boolVerifySSLCertIN
+                           , __boolFollowRedirectIN):
 
         
     global str_start_datetime \
@@ -60,7 +63,8 @@ def init_link_check_worker(__str_start_datetime
         , numConsoleSevere \
         , numConsoleWarn \
         , numCriticalExceptions \
-        , boolVerifySSLCertIN
+        , boolVerifySSLCertIN \
+        , boolFollowRedirectIN
     
     str_start_datetime      = __str_start_datetime
     flagRunningMode         = __flagRunningMode
@@ -75,7 +79,8 @@ def init_link_check_worker(__str_start_datetime
     numConsoleSevere        = __numConsoleSevere
     numConsoleWarn          = __numConsoleWarn
     numCriticalExceptions   = __numCriticalExceptions
-    boolVerifySSLCertIN       = __boolVerifySSLCertIN
+    boolVerifySSLCertIN     = __boolVerifySSLCertIN
+    boolFollowRedirectIN      = __boolFollowRedirectIN
 
     link_check_worker.RESULT_DIRNAME = 'results-' + str_start_datetime
 
@@ -95,22 +100,40 @@ def init_link_check_worker(__str_start_datetime
     Path(link_check_worker.RESULT_DIRNAME, link_check_worker.FILE_CRITICALEXCEPTIONS_ALL).touch(exist_ok=True)
 
 
-def writeOutMsgToFile(strPathToFile, strMsg, lock):
+def writeOutMsgToFile(strPathToFile, arrOutput, lock):
     try:
         while not lock.acquire(True, 3.0):
             time.sleep(2.0)
 
         with open(strPathToFile, 'a+', encoding=settings.FILE_ENCODING) as fp:
-            fp.write(strMsg + "\n")
+            csvwriter = csv.writer(fp
+                                   , delimiter=','
+                                   , quotechar='"'
+                                   , quoting=csv.QUOTE_ALL
+                                   , lineterminator="\n" )
+            if len(arrOutput) > 0 and type(arrOutput[0]) is list:
+                # mostly in case of console log (array of array)
+                csvwriter.writerows(arrOutput)
+            else:
+                csvwriter.writerow(arrOutput)
     except Exception as ex:
         raise
     finally:
         lock.release()
 
-def writeOutMessageToTmpFile(strPathToFile, strMsg):
+def writeOutMessageToTmpFile(strPathToFile, arrOutput):
     try:
         with open(strPathToFile, 'a+', encoding=settings.FILE_ENCODING) as fp:
-            fp.write(strMsg + "\n")
+            csvwriter = csv.writer(fp
+                                   , delimiter=','
+                                   , quotechar='"'
+                                   , quoting=csv.QUOTE_ALL
+                                   , lineterminator="\n" )
+            if len(arrOutput) > 0 and type(arrOutput[0]) is list:
+                # mostly in case of console log (array of array)
+                csvwriter.writerows(arrOutput)
+            else:
+                csvwriter.writerow(arrOutput)
     except Exception as ex:
         raise
 
@@ -137,13 +160,6 @@ def appendAndDeleteTmpFIle(dir_path, f_to, f_tmp, lock):
         raise
 
 
-def handleDoubleQuoteForCSV(str_in):
-    try:
-        return str_in.replace('"', '""')
-    except Exception as ex:
-        raise
-
-    
 def findAllLinks(driver):
     try:
         elems = driver.find_elements(By.XPATH, "//a[@href]")
@@ -156,7 +172,7 @@ def findAllLinks(driver):
         raise
     
 
-def isInternaURL(baseURL, tgtURL):
+def isInternalURL(baseURL, tgtURL):
     try:
         strPtn = '^https?:'
         strBasePath = re.sub(strPtn, '', baseURL)
@@ -200,7 +216,13 @@ def isRedirect(http_code):
         raise
 
 # do HEAD / GET request (HEAD if request_type was None)
-def doRequest(target_url, request_type=None, argAuth=None, argVerify=None):
+def doRequest(
+        target_url
+        , argFollowRedirect
+        , request_type=None
+        , argAuth=None
+        , argVerify=None):
+
     resp = None
     req_method  = None
     try:
@@ -208,20 +230,21 @@ def doRequest(target_url, request_type=None, argAuth=None, argVerify=None):
             req_method = requests.get
         else:
             req_method = requests.head
-
+            
         if argAuth is not None and argVerify is not None:
         # basic auth and https
-            resp = req_method(target_url, allow_redirects=False, auth=argAuth, verify=argVerify)
+            resp = req_method(target_url, allow_redirects=argFollowRedirect, auth=argAuth, verify=argVerify)
         elif argVerify is not None:
             # https without basic auth
-            resp = req_method(target_url, allow_redirects=False,verify=argVerify)
+            resp = req_method(target_url, allow_redirects=argFollowRedirect, verify=argVerify)
         elif argAuth is not None:
             # basic auth
-            resp = req_method(target_url, allow_redirects=False,auth=argAuth)
+            resp = req_method(target_url, allow_redirects=argFollowRedirect, auth=argAuth)
         else:
             # http without basic auth
-            resp = req_method(target_url, allow_redirects=False,)
+            resp = req_method(target_url, allow_redirects=argFollowRedirecte,)
 
+        
         return resp
     except Exception as ex:
         raise
@@ -229,6 +252,7 @@ def doRequest(target_url, request_type=None, argAuth=None, argVerify=None):
 # check http responce with HEAD / GET request
 def getResponse(
         target_url
+        , boolFollowRedirect
         , request_type=None
         , basic_auth_id=None
         , basic_auth_pass=None
@@ -237,7 +261,8 @@ def getResponse(
     resp = None
     argAuth = None
     argVerify = None
-    
+    argFollowRedirect = False
+
     try:
         if basic_auth_id is not None and basic_auth_pass is not None:
             argAuth = (basic_auth_id, basic_auth_pass)
@@ -247,7 +272,11 @@ def getResponse(
             elif boolVerifySsl == False:
                 argVerify = False  # do not check ssl certificate
 
-        resp = doRequest(target_url, request_type, argAuth, argVerify)
+        # in case redirect http to https
+        argVerify = boolVerifySsl
+        argFollowRedirect = boolFollowRedirect
+
+        resp = doRequest(target_url, argFollowRedirect, request_type, argAuth, argVerify)
 
         # override encoding by real educated guess as provided by chardet
         # see https://stackoverflow.com/questions/44203397/python-requests-get-returns-improperly-decoded-text-instead-of-utf-8
@@ -333,6 +362,7 @@ def link_check_worker(q
             f_out_ok    = "f_out_ok_dummy.csv"
             f_out_error = "f_out_error_dummy.csv"
             strCurrentBrowsingURL = None
+            strElementCheckingURL = ''
             
             # try to get the target URL from q. wait max 90 sec if q is empty.            
             strCurrentBrowsingURL = carefullyPopTargetURL(q, lock)
@@ -370,7 +400,7 @@ def link_check_worker(q
                 strLinkType = ''
                 strLinkText = ''
                 strAltText = ''
-                strMsg = ''
+                arrOutput = []
                 strInternalUrlChkBase = ''
 
                 if flagRunningMode == statics.RUNNING_MODE_TRAVERSAL:
@@ -379,18 +409,27 @@ def link_check_worker(q
                 elif flagRunningMode == statics.RUNNING_MODE_URLLIST:
                     strInternalUrlChkBase = getNetLoc(strCurrentBrowsingURL)
 
-                '''
-                # [TODO :eneed to implement] How can I pass through the basic authentication on Chrome? 
+
+                driver.execute_cdp_cmd("Network.enable", {})
+                driver.execute_cdp_cmd("Network.clearBrowserCache", {})
+                
+                # to handle Basic Auth, execute Chrome Devtools Protocol command.
                 if strBasicAuthID and strBasicAuthPassword:
-                    driver.get(getBasicAuthURL(strCurrentBrowsingURL, strBasicAuthID, strBasicAuthPassword))
-                else:
-                    driver.get(strCurrentBrowsingURL)
-                '''
+                    auth = base64.b64encode('{}:{}'.format(strBasicAuthID, strBasicAuthPassword).encode('utf-8')).decode('utf-8')
+                    driver.execute_cdp_cmd("Network.setExtraHTTPHeaders", {"headers": {"Authorization": "Basic " + auth}})
+                    # (note)
+                    # don't have to clear header, like
+                    # "driver.execute_cdp_cmd("Network.setExtraHTTPHeaders", {"headers": {}})"
+                    # , since I don't pass the request to external link (see: isInternalURL()).
+
                 driver.get(strCurrentBrowsingURL)
+
                 countup_shared_variable(numBrowsedPages)
                 time.sleep(settings.INT_WAIT_SEC_AFTER_DRIVER_GET) # just wait a little bit to avoid StaleElementReferenceException.
 
+                # first, get a response without redirect
                 resp_current_browsing_page = getResponse(strCurrentBrowsingURL
+                                                         , False
                                                          , request_type='GET'
                                                          , basic_auth_id=strBasicAuthID
                                                          , basic_auth_pass=strBasicAuthPassword
@@ -399,36 +438,74 @@ def link_check_worker(q
                 if isRedirect(resp_current_browsing_page.status_code):
                     strLocation          = resp_current_browsing_page.headers['Location']
                     strFirstResponse     = resp_current_browsing_page.reason
-                    strFIrstStatusCode   = resp_current_browsing_page. status_code
+                    strFIrstStatusCode   = resp_current_browsing_page.status_code
                     strAbsoluteLocation  =  makeAbsoluteURL(strCurrentBrowsingURL, strLocation)
-                    resp_redirect        = getResponse(strAbsoluteLocation
-                                                       , basic_auth_id=strBasicAuthID
-                                                       , basic_auth_pass=strBasicAuthPassword
-                                                       , boolVerifySsl = boolVerifySSLCertIN)
-                    
-                    strMsg = '"{}","{}","{}",{},{},"{}","{}"'.format(handleDoubleQuoteForCSV(unquote(strCurrentBrowsingURL)) \
-                                                                   , '' \
-                                                                   , resp_current_browsing_page.status_code\
-                                                                   , resp_current_browsing_page.reason \
-                                                                   , strLocation \
-                                                                   , resp_redirect.status_code \
-                                                                   , resp_redirect.reason)
+                    resp_recirect        = None
+
+                    if boolFollowRedirectIN is False:
+                        # just check the status of next location.
+                        resp_redirect        = getResponse(strAbsoluteLocation
+                                                           , boolFollowRedirectIN
+                                                           #, basic_auth_id=strBasicAuthID
+                                                           #, basic_auth_pass=strBasicAuthPassword
+                                                           , boolVerifySsl = boolVerifySSLCertIN)
+                        
+                        arrOutput = [unquote(strCurrentBrowsingURL)
+                                 , ''
+                                 , resp_current_browsing_page.status_code
+                                 , resp_current_browsing_page.reason
+                                 , unquote(strLocation)
+                                 , resp_redirect.status_code
+                                 , resp_redirect.reason]
+                        
+                    else:
+                        # follow the redirect chain and obtain all history.
+                        resp_redirect        = getResponse(strCurrentBrowsingURL
+                                                           , boolFollowRedirectIN
+                                                           , basic_auth_id=strBasicAuthID
+                                                           , basic_auth_pass=strBasicAuthPassword
+                                                           , boolVerifySsl = boolVerifySSLCertIN)
+
+                        # we already know it's redirect so that resp_redirect should always have a history data.
+                        for i, r in enumerate(resp_redirect.history):
+                            if i == 0:
+                                arrOutput.extend([unquote(r.url)
+                                                  , ''
+                                                  , r.status_code
+                                                  , r.reason ])
+                            else:
+                                arrOutput.extend([unquote(r.url), r.status_code, r.reason])
+                                
+                        # output the final state of request rather than the last of chain.
+                        arrOutput.extend([unquote(resp_redirect.url), resp_redirect.status_code, resp_redirect.reason])
+
+                    strElementCheckingURL = resp_redirect.url
+                                
                 else:
                     strTitle = ''
+                    strFinalURL = ''
                     html_text = resp_current_browsing_page.text
                     # m = re.search('<\W*title\W*(.*)</title', html_text, re.IGNORECASE|re.DOTAL)
                     m = re.search('<*title>(.*)</title', html_text, re.IGNORECASE|re.DOTALL)
                     if m:
                         strTitle = m.group(1)
                         #strTitle.encode(encoding=settings.FILE_ENCODING,errors='ignore')
-                    strMsg = '"{}","{}","{}",{},{},"{}","{}"'.format(handleDoubleQuoteForCSV(unquote(strCurrentBrowsingURL)) \
-                                                                   , handleDoubleQuoteForCSV(strTitle) \
-                                                                   , resp_current_browsing_page.status_code\
-                                                                   , resp_current_browsing_page.reason \
-                                                                   , '' \
-                                                                   , '' \
-                                                                   , '')
-                writeOutMsgToFile(os.path.join(link_check_worker.RESULT_DIRNAME, link_check_worker.FILE_BROWSED_PAGES), strMsg, lock)
+
+                    arrOutput = [unquote(strCurrentBrowsingURL)
+                                 , strTitle
+                                 , resp_current_browsing_page.status_code
+                                 , resp_current_browsing_page.reason
+                                 , ''
+                                 , ''
+                                 , '']
+                    
+                    strElementCheckingURL = strCurrentBrowsingURL
+
+                writeOutMsgToFile(os.path.join(link_check_worker.RESULT_DIRNAME, link_check_worker.FILE_BROWSED_PAGES), arrOutput, lock)
+
+                #
+                # --- beginning of element cheging ---
+                #
             
                 elems = findAllLinks(driver)
 
@@ -438,7 +515,7 @@ def link_check_worker(q
                     strLinkType = ''
                     strLinkText = ''
                     strAltText = ''
-                    strMsg = ''
+                    arrOutput = []
                     intAttempts = 0
 
                     try:
@@ -465,50 +542,57 @@ def link_check_worker(q
                             strAttrHref = elem.get_attribute('src')
                             strAltText = '' if elem.get_attribute('alt') == None else elem.get_attribute('alt')
 
-                        strAbsoluteURL = makeAbsoluteURL(strCurrentBrowsingURL, strAttrHref)
+                        strAbsoluteURL = makeAbsoluteURL(strElementCheckingURL, strAttrHref)
+                        if flagRunningMode == statics.RUNNING_MODE_URLLIST:
+                            strInternalUrlChkBase = getNetLoc(strElementCheckingURL)
 
                         # if strAbsoluteURL is already checked or is external link, print message.
                         # if it is not checked yet, create message based on the response status and store it into q_checked_links.
                         if strAbsoluteURL in q_checked_links:
                             # already checkecd the status
-                            checked_status_code= q_checked_links[strAbsoluteURL]
-                            strMsg = '"{0}",{1},"{2}",{3},{4},,'.format(handleDoubleQuoteForCSV(unquote(strCurrentBrowsingURL)) \
-                                                                    , strLinkType \
-                                                                    , handleDoubleQuoteForCSV(unquote(strAttrHref)) \
-                                                                    , '(visited)'
-                                                                    , checked_status_code)
-                            
-                            #writeOutMessageToTmpFile(os.path.join(link_check_worker.RESULT_DIRNAME, f_out_ok), strMsg) # -> wrong! the link already checkeded does not means it's status is "OK".
+                            checked_status_code = q_checked_links[strAbsoluteURL]
 
+                            arrOutput = [unquote(strElementCheckingURL)
+                                         , strLinkType
+                                         , unquote(strAttrHref)
+                                         , '(visited)'
+                                         , checked_status_code]
+                            
                             # increment counter based on the response status.
                             if checked_status_code >= 400:
                                 countup_shared_variable(numInvalidLink)
-                                writeOutMessageToTmpFile(os.path.join(link_check_worker.RESULT_DIRNAME, f_out_error), strMsg)
+                                writeOutMessageToTmpFile(os.path.join(link_check_worker.RESULT_DIRNAME, f_out_error), arrOutput)
                             elif checked_status_code < 0:
                                 countup_shared_variable(numExceptions)
-                                writeOutMessageToTmpFile(os.path.join(link_check_worker.RESULT_DIRNAME, f_out_exceptions), strMsg)
+                                writeOutMessageToTmpFile(os.path.join(link_check_worker.RESULT_DIRNAME, f_out_exceptions), arrOutput)
                             else:
                                 countup_shared_variable(numHealthyLink)
-                                writeOutMessageToTmpFile(os.path.join(link_check_worker.RESULT_DIRNAME, f_out_ok), strMsg)
-                        elif not isInternaURL(strInternalUrlChkBase, strAttrHref):
+                                writeOutMessageToTmpFile(os.path.join(link_check_worker.RESULT_DIRNAME, f_out_ok), arrOutput)
+                        elif not isInternalURL(strInternalUrlChkBase, strAttrHref):
                             countup_shared_variable(numExternalLinks)
-                            strMsg = '"{}",{},"{}", (external link),,,'.format(handleDoubleQuoteForCSV(unquote(strCurrentBrowsingURL)) \
-                                                                        , strLinkType \
-                                                                        , handleDoubleQuoteForCSV(unquote(strAttrHref)))
+                            
+                            arrOutput = [unquote(strElementCheckingURL)
+                                         , strLinkType
+                                         , unquote(strAttrHref)
+                                         , '(external link)'
+                                         , ''
+                                         , '']
 
-                            writeOutMessageToTmpFile(os.path.join(link_check_worker.RESULT_DIRNAME, f_out_externalLinks), strMsg)
+                            writeOutMessageToTmpFile(os.path.join(link_check_worker.RESULT_DIRNAME, f_out_externalLinks), arrOutput)
                         else:
                             resp_elem = getResponse(strAbsoluteURL
+                                                    , boolFollowRedirectIN
                                                     , basic_auth_id=strBasicAuthID
                                                     , basic_auth_pass=strBasicAuthPassword
                                                     , boolVerifySsl=boolVerifySSLCertIN)
-                            strMsg = '"{0}",{1},"{2}",{3},{4},"{5}","{6}"'.format(handleDoubleQuoteForCSV(unquote(strCurrentBrowsingURL)) \
-                                                                           , strLinkType \
-                                                                           , handleDoubleQuoteForCSV(unquote(strAttrHref)) \
-                                                                           , resp_elem.reason \
-                                                                           , resp_elem.status_code \
-                                                                           , handleDoubleQuoteForCSV(strAltText.replace("\r", '').replace("\n", '')) \
-                                                                           , handleDoubleQuoteForCSV(strLinkText.replace("\r", '').replace("\n", '')))
+
+                            arrOutput = [unquote(strElementCheckingURL)
+                                         , strLinkType
+                                         , unquote(strAttrHref)
+                                         , resp_elem.reason
+                                         , resp_elem.status_code
+                                         , strAltText.replace("\r", '').replace("\n", '')
+                                         , strLinkText.replace("\r", '').replace("\n", '') ]
                             # save url and status_code
                             if not strAbsoluteURL in q_checked_links:
                                 q_checked_links[strAbsoluteURL] = resp_elem.status_code
@@ -526,7 +610,7 @@ def link_check_worker(q
                                        and (not strAbsoluteURL in q_browsed_urls) and (not strAbsoluteURL in q) \
                                        and (not strAttrHref.rfind('#') > strAttrHref.rfind('/')) \
                                        and not (strAttrHref.endswith('.png') or strAttrHref.endswith('.jpg') or strAttrHref.endswith('.gif')) \
-                                       and isInternaURL(strInternalUrlChkBase, strAttrHref):
+                                       and isInternalURL(strInternalUrlChkBase, strAttrHref):
                                         q.append(strAbsoluteURL)
                                 finally:
                                     lock.release()
@@ -534,94 +618,75 @@ def link_check_worker(q
                             # increment counter based on the response status.
                             if resp_elem.status_code >= 400:
                                 countup_shared_variable(numInvalidLink)
-                                writeOutMessageToTmpFile(os.path.join(link_check_worker.RESULT_DIRNAME, f_out_error), strMsg)
+                                writeOutMessageToTmpFile(os.path.join(link_check_worker.RESULT_DIRNAME, f_out_error), arrOutput)
                             elif resp_elem.status_code < 0:
                                 countup_shared_variable(numExceptions)
-                                writeOutMessageToTmpFile(os.path.join(link_check_worker.RESULT_DIRNAME, f_out_exceptions), strMsg)
+                                writeOutMessageToTmpFile(os.path.join(link_check_worker.RESULT_DIRNAME, f_out_exceptions), arrOutput)
                             else:
                                 countup_shared_variable(numHealthyLink)
-                                writeOutMessageToTmpFile(os.path.join(link_check_worker.RESULT_DIRNAME, f_out_ok), strMsg)
+                                writeOutMessageToTmpFile(os.path.join(link_check_worker.RESULT_DIRNAME, f_out_ok), arrOutput)
                     except StaleElementReferenceException as ex:
                         exc_type, exc_value, exc_traceback = sys.exc_info()
                         sam =  traceback.format_exception(exc_type, exc_value, exc_traceback)
 
-                        strMsg = '"{}",' \
-                                'Element: "{}",' \
-                                '"{}",' \
-                                '[Exception] @class : {},' \
-                                '@in : {},' \
-                                'Message : {},' \
-                                '"{}"'.format(handleDoubleQuoteForCSV(unquote(strCurrentBrowsingURL)) \
-                                              , str(elem) \
-                                              , '' \
-                                              , ex.__class__.__name__ \
-                                              , sys._getframe().f_code.co_name \
-                                              , repr(traceback.format_stack()) \
-                                              , '')
+                        arrOutput = [unquote(strElementCheckingURL)
+                                     , f'Element: {str(elem)}'
+                                     , ''
+                                     , f'[Exception] @class : {ex.__class__.__name__}'
+                                     , f'@in : {sys._getframe().f_code.co_name}'
+                                     , f'Message : {repr(traceback.format_stack())}'
+                                     , '' ]
                         countup_shared_variable(numExceptions)
-                        writeOutMessageToTmpFile(os.path.join(link_check_worker.RESULT_DIRNAME, f_out_exceptions), strMsg)                                
+                        writeOutMessageToTmpFile(os.path.join(link_check_worker.RESULT_DIRNAME, f_out_exceptions), arrOutput)
                     except Exception as ex:
                         exc_type, exc_value, exc_traceback = sys.exc_info()
                         sam =  traceback.format_exception(exc_type, exc_value, exc_traceback)
-
-                        strMsg = '"{}",' \
-                                'Tag: "{}",' \
-                                'At attribute : "{}",' \
-                                '[Exception] @class : {},' \
-                                '@in : {},' \
-                                'Message : {},' \
-                                '"{}"'.format(handleDoubleQuoteForCSV(unquote(strCurrentBrowsingURL)) \
-                                              , elem.tag_name \
-                                              , elem.get_attribute('innerHTML') \
-                                              , ex.__class__.__name__ \
-                                              , sys._getframe().f_code.co_name \
-                                              , repr(traceback.format_stack()) \
-                                              , '')
+                        
+                        arrOutput = [unquote(strElementCheckingURL)
+                                     , f'Tag: "{elem.tag_name}"'
+                                     , f"At attribute : {elem.get_attribute('innerHTML')}"
+                                     , f'[Exception] @class : {ex.__class__.__name__ }'
+                                     , f'@in : {sys._getframe().f_code.co_name},'
+                                     , f'Message : {repr(traceback.format_stack())}'
+                                     , '']
                         countup_shared_variable(numExceptions)
-                        writeOutMessageToTmpFile(os.path.join(link_check_worker.RESULT_DIRNAME, f_out_exceptions), strMsg)
+                        writeOutMessageToTmpFile(os.path.join(link_check_worker.RESULT_DIRNAME, f_out_exceptions), arrOutput)
                     # --- end of outer try in for elem in elems:
-                # --- end of for elem in elems:
+                #
+                # --- enf of element cheging ---
+                #
 
-
-
-                strConsoleLog = ''
+                
+                arrConsoleLog = []
                 for cl in driver.get_log('browser'):
-                    strConsoleLog += '{},"{}",{},{},{}\n'.format(cl['level'] \
-                                                                 , handleDoubleQuoteForCSV(cl['message']) \
-                                                                 , cl['source'] \
-                                                                 , datetime.datetime.fromtimestamp(float(cl['timestamp']/1000)).strftime('%Y%m%d-%H%M%S-%f') \
-                                                                 , strCurrentBrowsingURL)
-
+                    
+                    arrConsoleLog.append([cl['level']
+                                          , cl['message']
+                                          , cl['source']
+                                          , datetime.datetime.fromtimestamp(float(cl['timestamp']/1000)).strftime('%Y%m%d-%H%M%S-%f')
+                                          , strElementCheckingURL])
                     if cl['level'] == 'SEVERE':
                         countup_shared_variable(numConsoleSevere)
                     elif cl['level'] == 'WARNING':
                         countup_shared_variable(numConsoleWarn)
-                if strConsoleLog != '':
-                    writeOutMessageToTmpFile(os.path.join(link_check_worker.RESULT_DIRNAME, f_out_consolelog), strConsoleLog)
-                strConsoleLog = ''
+                if arrConsoleLog:
+                    writeOutMessageToTmpFile(os.path.join(link_check_worker.RESULT_DIRNAME, f_out_consolelog), arrConsoleLog)
+                arrConsoleLog = []
 
                 
             except Exception as ex:
                 exc_type, exc_value, exc_traceback = sys.exc_info()
                 sam =  traceback.format_exception(exc_type, exc_value, exc_traceback)
-                
-                strMsg = '{},' \
-                    '{},' \
-                    '"{}",' \
-                    '{},' \
-                    '{},' \
-                    '{},' \
-                    '{}"'.format( sys._getframe().f_code.co_name + 'is going to terminate due to unexpected exception at ' + datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')\
-                                  , ex.__class__.__name__ \
-                                  #, repr(traceback.format_stack()) \
-                                  #, str(traceback.format_stack()) \
-                                  , str(traceback.format_tb(ex.__traceback__)) \
-                                  , '' \
-                                  , '' \
-                                  , '' \
-                                  , '')
+
+                arrOutput = [sys._getframe().f_code.co_name + ' is going to terminate due to unexpected exception at ' + datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')
+                             , ex.__class__.__name__
+                             , str(traceback.format_tb(ex.__traceback__))
+                             , ''
+                             , ''
+                             , ''
+                             , '' ]
                 countup_shared_variable(numCriticalExceptions)
-                writeOutMsgToFile(os.path.join(link_check_worker.RESULT_DIRNAME, link_check_worker.FILE_CRITICALEXCEPTIONS_ALL), strMsg, lock)
+                writeOutMsgToFile(os.path.join(link_check_worker.RESULT_DIRNAME, link_check_worker.FILE_CRITICALEXCEPTIONS_ALL), arrOutput, lock)
                 break # break the most outer while
                 
             finally:
@@ -638,21 +703,16 @@ def link_check_worker(q
         # some unexpected exception
         exc_type, exc_value, exc_traceback = sys.exc_info()
         sam =  traceback.format_exception(exc_type, exc_value, exc_traceback)
-        strMsg = '{},' \
-            '{},' \
-            '"{}",' \
-            '{},' \
-            '{},' \
-            '{},' \
-            '{}"'.format( sys._getframe().f_code.co_name\
-                          , ex.__class__.__name__ \
-                          , str(traceback.format_tb(ex.__traceback__)) \
-                          , '' \
-                          , '' \
-                          , '' \
-                          , '')
+
+        arrOutput = [sys._getframe().f_code.co_name
+                     , ex.__class__.__name__
+                     , str(traceback.format_tb(ex.__traceback__))
+                     , ''
+                     , ''
+                     , ''
+                     , '' ]
         countup_shared_variable(numExceptions)
-        writeOutMsgToFile(os.path.join(link_check_worker.RESULT_DIRNAME, link_check_worker.FILE_CRITICALEXCEPTIONS_ALL), strMsg, lock)
+        writeOutMsgToFile(os.path.join(link_check_worker.RESULT_DIRNAME, link_check_worker.FILE_CRITICALEXCEPTIONS_ALL), arrOutput, lock)
         raise
     finally:
         driver.close()
