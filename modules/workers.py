@@ -111,7 +111,7 @@ def writeOutMsgToFile(strPathToFile, arrOutput, lock):
                                    , quotechar='"'
                                    , quoting=csv.QUOTE_ALL
                                    , lineterminator="\n" )
-            if len(arrOutput) > 0 and type(arrOutput[0]) is list:
+            if arrOutput and type(arrOutput[0]) is list:
                 # mostly in case of console log (array of array)
                 csvwriter.writerows(arrOutput)
             else:
@@ -129,7 +129,7 @@ def writeOutMessageToTmpFile(strPathToFile, arrOutput):
                                    , quotechar='"'
                                    , quoting=csv.QUOTE_ALL
                                    , lineterminator="\n" )
-            if len(arrOutput) > 0 and type(arrOutput[0]) is list:
+            if arrOutput and type(arrOutput[0]) is list:
                 # mostly in case of console log (array of array)
                 csvwriter.writerows(arrOutput)
             else:
