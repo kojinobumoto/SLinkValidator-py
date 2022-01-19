@@ -18,6 +18,9 @@ from urllib.parse import unquote
 from pathlib import Path
 from . import settings, statics
 
+from selenium import webdriver
+from webdriver_manager.chrome import ChromeDriverManager
+
 settings.init()
 statics.init()
 
@@ -207,8 +210,12 @@ def isRedirect(http_code):
     try:
         # check https://github.com/psf/requests/blob/master/requests/status_codes.py for http status code
         if http_code != requests.codes.ok and \
-            http_code in (requests.codes.moved_permanently, requests.codes.see_other, requests.codes.temporary_redirect, requests.codes.permanent_redirect):
-                # 301, 303, 307, 308
+            http_code in (requests.codes.moved_permanently
+                          , requests.codes.found
+                          , requests.codes.see_other
+                          , requests.codes.temporary_redirect
+                          , requests.codes.permanent_redirect):
+                # 301, 302, 303, 307, 308
             return True
 
         return False
@@ -353,7 +360,8 @@ def link_check_worker(q
         options.add_argument('--ignore-certificate-errors')
 
         
-        driver = webdriver.Chrome(settings.PATH_TO_CHROME_DRIVER, desired_capabilities=d, options=options)
+        # driver = webdriver.Chrome(settings.PATH_TO_CHROME_DRIVER, desired_capabilities=d, options=options)
+        driver = webdriver.Chrome(ChromeDriverManager().install(), desired_capabilities=d, options=options)
         driver.implicitly_wait(settings.NUM_IMPLICITLY_WAIT_SEC)
         
         while True:
