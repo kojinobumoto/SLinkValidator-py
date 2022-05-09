@@ -83,7 +83,7 @@ def init_link_check_worker(__str_start_datetime
     numConsoleWarn          = __numConsoleWarn
     numCriticalExceptions   = __numCriticalExceptions
     boolVerifySSLCertIN     = __boolVerifySSLCertIN
-    boolFollowRedirectIN      = __boolFollowRedirectIN
+    boolFollowRedirectIN    = __boolFollowRedirectIN
 
     link_check_worker.RESULT_DIRNAME = 'results-' + str_start_datetime
 
@@ -318,12 +318,19 @@ def carefullyPopTargetURL(q, lock):
             try:
                 while not lock.acquire(True, 2.0):
                     time.sleep(1.0)
-                url = q.pop(0)
+                # there could be two cases for q to be empty.
+                #   1. q is still empty after numMaxSec sec of waiting -> seems to have no url to check anymore.
+                #   2. q became empty while taking a lock.
+                # -> return None in each case.
+                url = q.pop(0) if q else None # will be None in case q became empty while taking a lock.
+            except Exception as ex:
+                raise
+            else:
+                return url
             finally:
                 lock.release()
-            return url
         else:
-            # waited 60 sec, but still no url in q -> seems to have no url anymore.
+            # waited numMaxSec sec, but still no url in q -> seems to have no url anymore.
             return None
     except Exception as ex:
         raise
