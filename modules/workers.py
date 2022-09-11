@@ -185,19 +185,28 @@ def isInternalURL(baseURL, tgtURL):
         raise
 
 # make absolute URL path 
-def makeAbsoluteURL(currentBrowsingURL, strLinkPath):
+def makeAbsoluteURL(currentBrowsingURL, strLinkPath, keepScheme = False):
     strAbsoluteURl = ''
     try:
+        
+        parsed_browsing_url = urlparse(currentBrowsingURL)
         parsed_linkuri = urlparse(strLinkPath)
         
         if parsed_linkuri.scheme == '':
-            parsed_browsing_url = urlparse(currentBrowsingURL)
             if parsed_linkuri.netloc == '':
                 # strLinkPath is like /path/to/some/content
                 strAbsoluteURL = '{uri.scheme}://{uri.netloc}/{path}'.format(uri=parsed_browsing_url, path=strLinkPath.lstrip('/'))
             else:
                 # strLinkPath is like //hostname/path/to/some/content
                 strAbsoluteURL = '{uri.scheme}:{path}'.format(uri=parsed_browsing_url, path=strLinkPath)
+        elif keepScheme:
+            strPtn = '^https?:'
+            strLinkPath = re.sub(strPtn, '', strLinkPath)
+            strSlashSlash =''
+            
+            if parsed_linkuri.netloc == '':
+                strSlashSlash = '//'
+            strAbsoluteURL = '{uri.scheme}:{slash_slash}{path}'.format(uri=parsed_browsing_url, slash_slash=strSlashSlash, path=strLinkPath)
         else:
             strAbsoluteURL = strLinkPath
         return strAbsoluteURL
@@ -367,7 +376,7 @@ def link_check_worker(q
         options.add_argument('--ignore-certificate-errors')
 
         
-        # driver = webdriver.Chrome(settings.PATH_TO_CHROME_DRIVER, desired_capabilities=d, options=options)
+        #driver = webdriver.Chrome(settings.PATH_TO_CHROME_DRIVER, desired_capabilities=d, options=options)
         driver = webdriver.Chrome(ChromeDriverManager().install(), desired_capabilities=d, options=options)
         driver.implicitly_wait(settings.NUM_IMPLICITLY_WAIT_SEC)
         
@@ -425,23 +434,13 @@ def link_check_worker(q
                     strInternalUrlChkBase = getNetLoc(strCurrentBrowsingURL)
 
 
-                driver.execute_cdp_cmd("Network.enable", {})
-                driver.execute_cdp_cmd("Network.clearBrowserCache", {})
-                
-                # to handle Basic Auth, execute Chrome Devtools Protocol command.
-                if strBasicAuthID and strBasicAuthPassword:
-                    auth = base64.b64encode('{}:{}'.format(strBasicAuthID, strBasicAuthPassword).encode('utf-8')).decode('utf-8')
-                    driver.execute_cdp_cmd("Network.setExtraHTTPHeaders", {"headers": {"Authorization": "Basic " + auth}})
-                    # (note)
-                    # don't have to clear header, like
-                    # "driver.execute_cdp_cmd("Network.setExtraHTTPHeaders", {"headers": {}})"
-                    # , since I don't pass the request to external link (see: isInternalURL()).
+                # 1st. access to strCurrentBrowsingURL via requests() and get location's url in case 30x (since webdriver does not follow 30x).
+                # 2nd. if 30x, rewrite strCurrentBrowsingURL to location's url
+                # 3rd. access to strCurrentBrowsingURL using webdriver (driver.get()).
 
-                driver.get(strCurrentBrowsingURL)
-
-                countup_shared_variable(numBrowsedPages)
-                time.sleep(settings.INT_WAIT_SEC_AFTER_DRIVER_GET) # just wait a little bit to avoid StaleElementReferenceException.
-
+                ###########
+                # 1st
+                ###########
                 # first, get a response without redirect
                 resp_current_browsing_page = getResponse(strCurrentBrowsingURL
                                                          , False
@@ -449,12 +448,30 @@ def link_check_worker(q
                                                          , basic_auth_id=strBasicAuthID
                                                          , basic_auth_pass=strBasicAuthPassword
                                                          , boolVerifySsl=boolVerifySSLCertIN)
+
+                # in case a binary file (such as pdf, image, xls, zip), skip detail check
+                # -> [TODO] shold check content-type in the response header to be more precisely.
+                strSkipFilePtn = '\.(gif|jpg||jpeg|png|pdf|exe|xls|xlsx|mp4|ico|svg|zip)$'
+                skipFileMatch = re.search(strSkipFilePtn, strCurrentBrowsingURL, re.IGNORECASE)
+                if skipFileMatch:
+                    arrOutput = [unquote(strCurrentBrowsingURL)
+                                 , skipFileMatch.group(1)  # output the file extension
+                                 , resp_current_browsing_page.status_code
+                                 , resp_current_browsing_page.reason
+                                 , ''
+                                 , ''
+                                 , '']
+                    countup_shared_variable(numBrowsedPages)
+                    writeOutMsgToFile(os.path.join(link_check_worker.RESULT_DIRNAME, link_check_worker.FILE_BROWSED_PAGES), arrOutput, lock)
+                    continue
                 
                 if isRedirect(resp_current_browsing_page.status_code):
-                    strLocation          = resp_current_browsing_page.headers['Location']
+                    #strLocation          = resp_current_browsing_page.headers['Location']
+                    # Some reverse proxy (IIS) returns the location string as "mojibake".
+                    strLocation          = resp_current_browsing_page.headers['Location'].encode("latin-1").decode("utf-8")
                     strFirstResponse     = resp_current_browsing_page.reason
                     strFIrstStatusCode   = resp_current_browsing_page.status_code
-                    strAbsoluteLocation  =  makeAbsoluteURL(strCurrentBrowsingURL, strLocation)
+                    strAbsoluteLocation  = makeAbsoluteURL(strCurrentBrowsingURL, strLocation)
                     resp_recirect        = None
 
                     if boolFollowRedirectIN is False:
@@ -490,6 +507,21 @@ def link_check_worker(q
                                                   , r.reason ])
                             else:
                                 arrOutput.extend([unquote(r.url), r.status_code, r.reason])
+
+                    #
+                    # after taken necessary information for logging, do 2nd.
+                    #
+                    ###########
+                    # 2nd
+                    ###########
+                    # to avoid an exception in case 30x redirect on opening url by driver.get(URL)
+                    #if isInternalURL(strBaseURL, strAbsoluteLocation):
+                    if isInternalURL(strInternalUrlChkBase, strAbsoluteLocation):
+                        # keep the protocol
+                        strAbsoluteLocation  = makeAbsoluteURL(strCurrentBrowsingURL, strLocation, keepScheme = True)
+                        strCurrentBrowsingURL = strAbsoluteLocation
+                    else:
+                        strCurrentBrowsingURL = strAbsoluteLocation
                                 
                         # output the final state of request rather than the last of chain.
                         arrOutput.extend([unquote(resp_redirect.url), resp_redirect.status_code, resp_redirect.reason])
@@ -516,6 +548,29 @@ def link_check_worker(q
                     
                     strElementCheckingURL = strCurrentBrowsingURL
 
+                ###########
+                # 3rd
+                ###########
+                
+                # now open the page with browser.
+                driver.execute_cdp_cmd("Network.enable", {})
+                driver.execute_cdp_cmd("Network.clearBrowserCache", {})
+                
+                # to handle Basic Auth, execute Chrome Devtools Protocol command.
+                if strBasicAuthID and strBasicAuthPassword:
+                    auth = base64.b64encode('{}:{}'.format(strBasicAuthID, strBasicAuthPassword).encode('utf-8')).decode('utf-8')
+                    driver.execute_cdp_cmd("Network.setExtraHTTPHeaders", {"headers": {"Authorization": "Basic " + auth}})
+                    # (note)
+                    # don't have to clear header, like
+                    # "driver.execute_cdp_cmd("Network.setExtraHTTPHeaders", {"headers": {}})"
+                    # , since I don't pass the request to external link (see: isInternalURL()).
+
+                driver.get(strCurrentBrowsingURL)
+                #driver.navigate().to(strCurrentBrowsingURL) # does not work even access to the first URL raises exception
+
+                countup_shared_variable(numBrowsedPages)
+                time.sleep(settings.INT_WAIT_SEC_AFTER_DRIVER_GET) # just wait a little bit to avoid StaleElementReferenceException.
+                
                 writeOutMsgToFile(os.path.join(link_check_worker.RESULT_DIRNAME, link_check_worker.FILE_BROWSED_PAGES), arrOutput, lock)
 
                 #
@@ -696,7 +751,7 @@ def link_check_worker(q
                 arrOutput = [sys._getframe().f_code.co_name + ' is going to terminate due to unexpected exception at ' + datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')
                              , ex.__class__.__name__
                              , str(traceback.format_tb(ex.__traceback__))
-                             , ''
+                             , 'strCurrentBrowsingURL : ' + strCurrentBrowsingURL
                              , ''
                              , ''
                              , '' ]
