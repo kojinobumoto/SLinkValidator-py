@@ -13,6 +13,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 from selenium.webdriver.chrome.options import Options
+from selenium.common.exceptions import StaleElementReferenceException
 from urllib.parse import urlparse
 from urllib.parse import unquote
 from pathlib import Path
@@ -449,6 +450,19 @@ def link_check_worker(q
                                                          , basic_auth_pass=strBasicAuthPassword
                                                          , boolVerifySsl=boolVerifySSLCertIN)
 
+                strContentType = resp_current_browsing_page.headers['content-type'].casefold()
+                if 'text/html' not in strContentType:
+                    arrOutput = [unquote(strCurrentBrowsingURL)
+                                 , strContentType  # content-type, reason of skipping
+                                 , resp_current_browsing_page.status_code
+                                 , resp_current_browsing_page.reason
+                                 , ''
+                                 , ''
+                                 , '']
+                    countup_shared_variable(numBrowsedPages)
+                    writeOutMsgToFile(os.path.join(link_check_worker.RESULT_DIRNAME, link_check_worker.FILE_BROWSED_PAGES), arrOutput, lock)
+                    continue
+                '''
                 # in case a binary file (such as pdf, image, xls, zip), skip detail check
                 # -> [TODO] shold check content-type in the response header to be more precisely.
                 strSkipFilePtn = '\.(gif|jpg||jpeg|png|pdf|exe|xls|xlsx|mp4|ico|svg|zip)$'
@@ -464,6 +478,7 @@ def link_check_worker(q
                     countup_shared_variable(numBrowsedPages)
                     writeOutMsgToFile(os.path.join(link_check_worker.RESULT_DIRNAME, link_check_worker.FILE_BROWSED_PAGES), arrOutput, lock)
                     continue
+                '''
                 
                 if isRedirect(resp_current_browsing_page.status_code):
                     #strLocation          = resp_current_browsing_page.headers['Location']
@@ -533,7 +548,7 @@ def link_check_worker(q
                     strFinalURL = ''
                     html_text = resp_current_browsing_page.text
                     # m = re.search('<\W*title\W*(.*)</title', html_text, re.IGNORECASE|re.DOTAL)
-                    m = re.search('<*title>(.*)</title', html_text, re.IGNORECASE|re.DOTALL)
+                    m = re.search('<*title>(.*?)</title', html_text, re.IGNORECASE|re.DOTALL)
                     if m:
                         strTitle = m.group(1)
                         #strTitle.encode(encoding=settings.FILE_ENCODING,errors='ignore')
