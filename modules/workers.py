@@ -43,17 +43,17 @@ def init_link_check_worker(__str_start_datetime
                            , __strBasicAuthID
                            , __strBasicAuthPassword
                            , __numBrowsedPages
-                           , __numHealthyLink                            
-                           , __numInvalidLink 
-                           , __numExceptions 
-                           , __numExternalLinks 
+                           , __numHealthyLink
+                           , __numInvalidLink
+                           , __numExceptions
+                           , __numExternalLinks
                            , __numConsoleSevere
                            , __numConsoleWarn
                            , __numCriticalExceptions
                            , __boolVerifySSLCertIN
                            , __boolFollowRedirectIN):
 
-        
+
     global str_start_datetime \
         , flagRunningMode \
         , strBaseURL \
@@ -69,7 +69,7 @@ def init_link_check_worker(__str_start_datetime
         , numCriticalExceptions \
         , boolVerifySSLCertIN \
         , boolFollowRedirectIN
-    
+
     str_start_datetime      = __str_start_datetime
     flagRunningMode         = __flagRunningMode
     strBaseURL              = __strBaseURL
@@ -174,7 +174,7 @@ def findAllLinks(driver):
         return elems
     except Exception as ex:
         raise
-    
+
 
 def isInternalURL(baseURL, tgtURL):
     try:
@@ -185,14 +185,14 @@ def isInternalURL(baseURL, tgtURL):
     except Exception as ex:
         raise
 
-# make absolute URL path 
+# make absolute URL path
 def makeAbsoluteURL(currentBrowsingURL, strLinkPath, keepScheme = False):
     strAbsoluteURl = ''
     try:
-        
+
         parsed_browsing_url = urlparse(currentBrowsingURL)
         parsed_linkuri = urlparse(strLinkPath)
-        
+
         if parsed_linkuri.scheme == '':
             if parsed_linkuri.netloc == '':
                 # strLinkPath is like /path/to/some/content
@@ -204,7 +204,7 @@ def makeAbsoluteURL(currentBrowsingURL, strLinkPath, keepScheme = False):
             strPtn = '^https?:'
             strLinkPath = re.sub(strPtn, '', strLinkPath)
             strSlashSlash =''
-            
+
             if parsed_linkuri.netloc == '':
                 strSlashSlash = '//'
             strAbsoluteURL = '{uri.scheme}:{slash_slash}{path}'.format(uri=parsed_browsing_url, slash_slash=strSlashSlash, path=strLinkPath)
@@ -213,8 +213,8 @@ def makeAbsoluteURL(currentBrowsingURL, strLinkPath, keepScheme = False):
         return strAbsoluteURL
     except Exception as ex:
         raise
-            
-            
+
+
 # check if response code is redirect
 def isRedirect(http_code):
     try:
@@ -247,7 +247,7 @@ def doRequest(
             req_method = requests.get
         else:
             req_method = requests.head
-            
+
         if argAuth is not None and argVerify is not None:
         # basic auth and https
             resp = req_method(target_url, allow_redirects=argFollowRedirect, auth=argAuth, verify=argVerify)
@@ -261,7 +261,7 @@ def doRequest(
             # http without basic auth
             resp = req_method(target_url, allow_redirects=argFollowRedirect,)
 
-        
+
         return resp
     except Exception as ex:
         raise
@@ -274,7 +274,7 @@ def getResponse(
         , basic_auth_id=None
         , basic_auth_pass=None
         , boolVerifySsl=None):
-    
+
     resp = None
     argAuth = None
     argVerify = None
@@ -332,7 +332,7 @@ def carefullyPopTargetURL(q, lock):
                 #   1. q is still empty after numMaxSec sec of waiting -> seems to have no url to check anymore.
                 #   2. q became empty while taking a lock.
                 # -> return None in each case.
-                url = q.pop(0) if q else None # will be None in case q became empty while taking a lock.
+                url = q.pop() if q else None # will be None in case q became empty while taking a lock.
             except Exception as ex:
                 raise
             else:
@@ -344,7 +344,7 @@ def carefullyPopTargetURL(q, lock):
             return None
     except Exception as ex:
         raise
-    
+
 def getNetLoc(s):
     try:
         parsed_uri = urlparse(s)
@@ -359,10 +359,10 @@ def getBasicAuthURL(url, basic_auth_id, basic_auth_pass):
         res = '{uri.scheme}://{uri.netloc}/'.format(uri=parsed_uri)
     except Exception as ex:
         raise
-        
-    
-def link_check_worker(q 
-                      , q_browsed_urls 
+
+
+def link_check_worker(q
+                      , q_browsed_urls
                       , q_checked_links
                       , lock):
     try:
@@ -376,11 +376,11 @@ def link_check_worker(q
         options = Options()
         options.add_argument('--ignore-certificate-errors')
 
-        
+
         #driver = webdriver.Chrome(settings.PATH_TO_CHROME_DRIVER, desired_capabilities=d, options=options)
         driver = webdriver.Chrome(ChromeDriverManager().install(), desired_capabilities=d, options=options)
         driver.implicitly_wait(settings.NUM_IMPLICITLY_WAIT_SEC)
-        
+
         while True:
 
             elems       = []
@@ -388,18 +388,18 @@ def link_check_worker(q
             f_out_error = "f_out_error_dummy.csv"
             strCurrentBrowsingURL = None
             strElementCheckingURL = ''
-            
-            # try to get the target URL from q. wait max 90 sec if q is empty.            
+
+            # try to get the target URL from q. wait max 90 sec if q is empty.
             strCurrentBrowsingURL = carefullyPopTargetURL(q, lock)
 
             try:
                 while not lock.acquire(True, 2.0):
                     # wait until successfully acquire lock.
                     time.sleep(1.0)
-                               
+
                 # must be an atomic operation.
                 # popping brosing url and storing it into q_browsed_url are this processe's responsibility.
-                
+
                 if not q and strCurrentBrowsingURL is None:
                     # if still no url in q after 90 sec passed, then break.
                     break
@@ -419,9 +419,9 @@ def link_check_worker(q
                 f_out_consolelog = "__tmp_" + str(os.getpid()) + "_" + strProcessTimestamp + "__console_log.csv"
             finally:
                 lock.release()
-                
+
             try:
-                
+
                 strLinkType = ''
                 strLinkText = ''
                 strAltText = ''
@@ -479,7 +479,7 @@ def link_check_worker(q
                     writeOutMsgToFile(os.path.join(link_check_worker.RESULT_DIRNAME, link_check_worker.FILE_BROWSED_PAGES), arrOutput, lock)
                     continue
                 '''
-                
+
                 if isRedirect(resp_current_browsing_page.status_code):
                     #strLocation          = resp_current_browsing_page.headers['Location']
                     # Some reverse proxy (IIS) returns the location string as "mojibake".
@@ -496,7 +496,7 @@ def link_check_worker(q
                                                            #, basic_auth_id=strBasicAuthID
                                                            #, basic_auth_pass=strBasicAuthPassword
                                                            , boolVerifySsl = boolVerifySSLCertIN)
-                        
+
                         arrOutput = [unquote(strCurrentBrowsingURL)
                                  , ''
                                  , resp_current_browsing_page.status_code
@@ -504,7 +504,7 @@ def link_check_worker(q
                                  , unquote(strLocation)
                                  , resp_redirect.status_code
                                  , resp_redirect.reason]
-                        
+
                     else:
                         # follow the redirect chain and obtain all history.
                         resp_redirect        = getResponse(strCurrentBrowsingURL
@@ -537,12 +537,12 @@ def link_check_worker(q
                         strCurrentBrowsingURL = strAbsoluteLocation
                     else:
                         strCurrentBrowsingURL = strAbsoluteLocation
-                                
+
                         # output the final state of request rather than the last of chain.
                         arrOutput.extend([unquote(resp_redirect.url), resp_redirect.status_code, resp_redirect.reason])
 
                     strElementCheckingURL = resp_redirect.url
-                                
+
                 else:
                     strTitle = ''
                     strFinalURL = ''
@@ -560,17 +560,17 @@ def link_check_worker(q
                                  , ''
                                  , ''
                                  , '']
-                    
+
                     strElementCheckingURL = strCurrentBrowsingURL
 
                 ###########
                 # 3rd
                 ###########
-                
+
                 # now open the page with browser.
                 driver.execute_cdp_cmd("Network.enable", {})
                 driver.execute_cdp_cmd("Network.clearBrowserCache", {})
-                
+
                 # to handle Basic Auth, execute Chrome Devtools Protocol command.
                 if strBasicAuthID and strBasicAuthPassword:
                     auth = base64.b64encode('{}:{}'.format(strBasicAuthID, strBasicAuthPassword).encode('utf-8')).decode('utf-8')
@@ -585,13 +585,13 @@ def link_check_worker(q
 
                 countup_shared_variable(numBrowsedPages)
                 time.sleep(settings.INT_WAIT_SEC_AFTER_DRIVER_GET) # just wait a little bit to avoid StaleElementReferenceException.
-                
+
                 writeOutMsgToFile(os.path.join(link_check_worker.RESULT_DIRNAME, link_check_worker.FILE_BROWSED_PAGES), arrOutput, lock)
 
                 #
                 # --- beginning of element cheging ---
                 #
-            
+
                 elems = findAllLinks(driver)
 
                 for elem in elems:
@@ -618,7 +618,7 @@ def link_check_worker(q
                                     raise
                             except Exception:
                                 raise
-                        
+
 
                         if elem.tag_name in ('a', 'link'):
                             strAttrHref = elem.get_attribute('href')
@@ -642,7 +642,7 @@ def link_check_worker(q
                                          , unquote(strAttrHref)
                                          , '(visited)'
                                          , checked_status_code]
-                            
+
                             # increment counter based on the response status.
                             if checked_status_code >= 400:
                                 countup_shared_variable(numInvalidLink)
@@ -655,7 +655,7 @@ def link_check_worker(q
                                 writeOutMessageToTmpFile(os.path.join(link_check_worker.RESULT_DIRNAME, f_out_ok), arrOutput)
                         elif not isInternalURL(strInternalUrlChkBase, strAttrHref):
                             countup_shared_variable(numExternalLinks)
-                            
+
                             arrOutput = [unquote(strElementCheckingURL)
                                          , strLinkType
                                          , unquote(strAttrHref)
@@ -726,7 +726,7 @@ def link_check_worker(q
                     except Exception as ex:
                         exc_type, exc_value, exc_traceback = sys.exc_info()
                         sam =  traceback.format_exception(exc_type, exc_value, exc_traceback)
-                        
+
                         arrOutput = [unquote(strElementCheckingURL)
                                      , f'Tag: "{elem.tag_name}"'
                                      , f"At attribute : {elem.get_attribute('innerHTML')}"
@@ -741,10 +741,10 @@ def link_check_worker(q
                 # --- enf of element cheging ---
                 #
 
-                
+
                 arrConsoleLog = []
                 for cl in driver.get_log('browser'):
-                    
+
                     arrConsoleLog.append([cl['level']
                                           , cl['message']
                                           , cl['source']
@@ -758,7 +758,7 @@ def link_check_worker(q
                     writeOutMessageToTmpFile(os.path.join(link_check_worker.RESULT_DIRNAME, f_out_consolelog), arrConsoleLog)
                 arrConsoleLog = []
 
-                
+
             except Exception as ex:
                 exc_type, exc_value, exc_traceback = sys.exc_info()
                 sam =  traceback.format_exception(exc_type, exc_value, exc_traceback)
@@ -766,14 +766,14 @@ def link_check_worker(q
                 arrOutput = [sys._getframe().f_code.co_name + ' is going to terminate due to unexpected exception at ' + datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')
                              , ex.__class__.__name__
                              , str(traceback.format_tb(ex.__traceback__))
-                             , 'strCurrentBrowsingURL : ' + strCurrentBrowsingURL
+                             , f'strCurrentBrowsingURL : {strCurrentBrowsingURL}'
                              , ''
                              , ''
                              , '' ]
                 countup_shared_variable(numCriticalExceptions)
                 writeOutMsgToFile(os.path.join(link_check_worker.RESULT_DIRNAME, link_check_worker.FILE_CRITICALEXCEPTIONS_ALL), arrOutput, lock)
                 break # break the most outer while
-                
+
             finally:
                 appendAndDeleteTmpFIle(link_check_worker.RESULT_DIRNAME, link_check_worker.FILE_OK_LINKS, f_out_ok, lock)
                 appendAndDeleteTmpFIle(link_check_worker.RESULT_DIRNAME, link_check_worker.FILE_ERROR_LINKS, f_out_error, lock)
