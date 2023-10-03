@@ -20,7 +20,7 @@ from pathlib import Path
 from . import settings, statics
 
 from selenium import webdriver
-from webdriver_manager.chrome import ChromeDriverManager
+
 
 settings.init()
 statics.init()
@@ -367,18 +367,13 @@ def link_check_worker(q
                       , lock):
     try:
 
-        # enable browser logging
-        d = DesiredCapabilities.CHROME
-        #d['loggingPrefs'] = { 'browser':'ALL' }
-        d['goog:loggingPrefs'] = { 'browser':'ALL' }
-        d['acceptInsecureCerts'] = True
-
         options = Options()
         options.add_argument('--ignore-certificate-errors')
+        # enable browser logging
+        options.set_capability('goog:loggingPrefs', { 'browser':'ALL' })
+        options.set_capability('acceptInsecureCerts', True)
 
-
-        #driver = webdriver.Chrome(settings.PATH_TO_CHROME_DRIVER, desired_capabilities=d, options=options)
-        driver = webdriver.Chrome(ChromeDriverManager().install(), desired_capabilities=d, options=options)
+        driver = webdriver.Chrome(options=options)
         driver.implicitly_wait(settings.NUM_IMPLICITLY_WAIT_SEC)
 
         while True:
