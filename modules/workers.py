@@ -362,8 +362,8 @@ def getBasicAuthURL(url, basic_auth_id, basic_auth_pass):
 
 
 def link_check_worker(q
-                      , q_browsed_urls
-                      , q_checked_links
+                      , d_browsed_urls
+                      , d_checked_links
                       , lock):
     try:
 
@@ -403,7 +403,7 @@ def link_check_worker(q
                     # but somehow a url is stored in q in very short period while processing from "carefullyPopTargetURL()" to here.
                     strCurrentBrowsingURL = q.pop(0)
 
-                q_browsed_urls.append(strCurrentBrowsingURL)
+                d_browsed_urls[strCurrentBrowsingURL] = 1
 
                 strProcessTimestamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')
 
@@ -627,10 +627,10 @@ def link_check_worker(q
                             strInternalUrlChkBase = getNetLoc(strElementCheckingURL)
 
                         # if strAbsoluteURL is already checked or is external link, print message.
-                        # if it is not checked yet, create message based on the response status and store it into q_checked_links.
-                        if strAbsoluteURL in q_checked_links:
+                        # if it is not checked yet, create message based on the response status and store it into d_checked_links.
+                        if strAbsoluteURL in d_checked_links:
                             # already checkecd the status
-                            checked_status_code = q_checked_links[strAbsoluteURL]
+                            checked_status_code = d_checked_links[strAbsoluteURL]
 
                             arrOutput = [unquote(strElementCheckingURL)
                                          , strLinkType
@@ -674,8 +674,8 @@ def link_check_worker(q
                                          , strAltText.replace("\r", '').replace("\n", '')
                                          , strLinkText.replace("\r", '').replace("\n", '') ]
                             # save url and status_code
-                            if not strAbsoluteURL in q_checked_links:
-                                q_checked_links[strAbsoluteURL] = resp_elem.status_code
+                            if not strAbsoluteURL in d_checked_links:
+                                d_checked_links[strAbsoluteURL] = resp_elem.status_code
 
                             if flagRunningMode == statics.RUNNING_MODE_TRAVERSAL:
                                 # store link into q if its internalinternal of considering url.
@@ -687,7 +687,7 @@ def link_check_worker(q
                                    if resp_elem.status_code > 0 and resp_elem.status_code < 400 \
                                        and not ('mailto:' in strAttrHref or 'tel:' in strAttrHref) \
                                        and elem.tag_name == 'a' \
-                                       and (not strAbsoluteURL in q_browsed_urls) and (not strAbsoluteURL in q) \
+                                       and (not strAbsoluteURL in d_browsed_urls) and (not strAbsoluteURL in q) \
                                        and (not strAttrHref.rfind('#') > strAttrHref.rfind('/')) \
                                        and not (strAttrHref.endswith('.png') or strAttrHref.endswith('.jpg') or strAttrHref.endswith('.gif')) \
                                        and isInternalURL(strInternalUrlChkBase, strAttrHref):
