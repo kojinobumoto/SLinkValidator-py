@@ -4,9 +4,7 @@ def init():
                 , FILE_ENCODING \
                 , INT_MAX_ATTEMMPTS_FOR_STALEELEMENT \
                 , INT_WAIT_SEC_AFTER_DRIVER_GET
-        PATH_TO_CHROME_DRIVER                 = 'C:\Program Files (x86)\chromedriver\chromedriver.exe'
         NUM_IMPLICITLY_WAIT_SEC               = 30
         FILE_ENCODING                         = 'utf-8'
         INT_MAX_ATTEMMPTS_FOR_STALEELEMENT    = 10
-        INT_WAIT_SEC_AFTER_DRIVER_GET         = 2
-    
+        INT_WAIT_SEC_AFTER_DRIVER_GET         = 4
